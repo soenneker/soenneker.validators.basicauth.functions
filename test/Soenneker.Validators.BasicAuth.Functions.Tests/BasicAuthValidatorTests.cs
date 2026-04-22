@@ -1,20 +1,19 @@
-﻿using Soenneker.Validators.BasicAuth.Functions.Abstract;
-using Soenneker.Tests.FixturedUnit;
-using Xunit;
+using Soenneker.Validators.BasicAuth.Functions.Abstract;
+using Soenneker.Tests.HostedUnit;
 
 namespace Soenneker.Validators.BasicAuth.Functions.Tests;
 
-[Collection("Collection")]
-public sealed class BasicAuthValidatorTests : FixturedUnitTest
+[ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
+public sealed class BasicAuthValidatorTests : HostedUnitTest
 {
     private readonly IBasicAuthValidator _validator;
 
-    public BasicAuthValidatorTests(Fixture fixture, ITestOutputHelper output) : base(fixture, output)
+    public BasicAuthValidatorTests(Host host) : base(host)
     {
         _validator = Resolve<IBasicAuthValidator>(true);
     }
 
-    [Fact]
+    [Test]
     public void Default()
     {
 
