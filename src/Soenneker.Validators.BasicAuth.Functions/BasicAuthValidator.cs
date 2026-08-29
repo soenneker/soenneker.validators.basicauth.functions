@@ -10,7 +10,7 @@ using System;
 
 namespace Soenneker.Validators.BasicAuth.Functions;
 
-///<inheritdoc cref="IBasicAuthValidator"/>
+/// <inheritdoc cref="IBasicAuthValidator"/>
 public sealed class BasicAuthValidator : Validator.Validator, IBasicAuthValidator
 {
     private readonly IConfiguration _configuration;
