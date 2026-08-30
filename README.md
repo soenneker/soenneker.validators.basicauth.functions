@@ -5,7 +5,7 @@
 
 # Soenneker.Validators.BasicAuth.Functions
 
-A validation module for validating HTTP Basic Authentication credentials in Functions.
+Validates Azure Functions isolated-worker Basic Authentication credentials against a fixed-cost username comparison and PBKDF2 PHC password hash.
 
 ## Install
 
@@ -13,28 +13,69 @@ A validation module for validating HTTP Basic Authentication credentials in Func
 dotnet add package Soenneker.Validators.BasicAuth.Functions
 ```
 
-## Quick start
+## Registration
 
 ```csharp
 using Soenneker.Validators.BasicAuth.Functions.Registrars;
 using Microsoft.Extensions.DependencyInjection;
 
-var services = new ServiceCollection();
-var result = services.AddBasicAuthValidatorAsSingleton();
+services.AddBasicAuthValidatorAsSingleton();
 ```
 
-Adds `IBasicAuthValidator` as a singleton service.
+The validator is stateless, so singleton registration is appropriate for most function apps. `AddBasicAuthValidatorAsScoped()` is also available.
 
-## What you get
+Configure the expected credential pair:
 
-- `IBasicAuthValidator` — A validation module for validating HTTP Basic Authentication credentials in Functions.
-- `BasicAuthValidatorRegistrar` — A validation module for validating HTTP Basic Authentication credentials in Functions.
+```json
+{
+  "BasicAuth": {
+    "Username": "integration-client",
+    "PasswordPhc": "<PBKDF2 PHC hash>"
+  }
+}
+```
 
-## API at a glance
+Store the PHC hash in the function app's secret-backed configuration, not the plaintext password.
 
-| API | What it does | Result / important behavior |
-| --- | --- | --- |
-| `IBasicAuthValidator.Validate(httpRequestData, configuredUsername, configuredPasswordPhc)` | Validates the request Basic credentials against the configured username and password hash. | true if the supplied credentials match the configured credentials; otherwise, false. |
-| `IBasicAuthValidator.ValidateSafe(httpRequestData, configuredUsername, configuredPasswordPhc)` | Validates Basic credentials and returns false instead of throwing when credentials or configuration are invalid. | true if the supplied credentials match the configured credentials; otherwise, false. |
-| `BasicAuthValidatorRegistrar.AddBasicAuthValidatorAsSingleton(services)` | Adds `IBasicAuthValidator` as a singleton service. | The same service collection, so additional registrations can be chained. |
-| `BasicAuthValidatorRegistrar.AddBasicAuthValidatorAsScoped(services)` | Adds `IBasicAuthValidator` as a scoped service. | The same service collection, so additional registrations can be chained. |
+## Validate an HTTP trigger
+
+```csharp
+using System.Net;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
+using Soenneker.Validators.BasicAuth.Functions.Abstract;
+
+public sealed class StatusFunction(IBasicAuthValidator validator)
+{
+    [Function("Status")]
+    public HttpResponseData Run(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get")] HttpRequestData request)
+    {
+        if (!validator.ValidateSafe(request))
+            return request.CreateResponse(HttpStatusCode.Unauthorized);
+
+        return request.CreateResponse(HttpStatusCode.OK);
+    }
+}
+```
+
+`ValidateSafe` returns `false` when the request lacks parseable Basic credentials or the username/password does not match. Required-configuration failures and invalid PHC data still throw; “safe” applies to request authentication failures, not application misconfiguration.
+
+`Validate` performs the same checks but throws `UnauthorizedAccessException("Invalid credentials")` for request credential failures. Both methods return `true` on success.
+
+## Per-call overrides
+
+```csharp
+bool valid = validator.ValidateSafe(
+    request,
+    configuredUsername: expectedUsername,
+    configuredPasswordPhc: expectedPasswordPhc);
+```
+
+Overrides take precedence independently. A null argument falls back to `BasicAuth:Username` or `BasicAuth:PasswordPhc`; it does not disable that check.
+
+## Security boundaries
+
+The HTTP trigger is anonymous at the Functions host level in the example because this validator performs the credential check. Ensure every applicable path invokes it before protected work. Require TLS, rate-limit guessable endpoints, and never log the authorization header or plaintext password.
+
+The parser's temporary credential buffer is cleared after every attempt. Usernames use fixed-cost UTF-8 comparison and passwords are verified against PBKDF2 PHC data. The validator does not create a `ClaimsPrincipal`, issue a Basic challenge response, rotate secrets, or replace a full authentication/authorization system.
